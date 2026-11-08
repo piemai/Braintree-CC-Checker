@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.8.0")
+app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.9.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -522,18 +522,18 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
             ) as session:
                 status, reason, code = await execute_weareteachers_auth(session, cc, mm, yy, cvv)
 
-            bin_info = await bin_task
-            elapsed = (time.perf_counter() - started) * 1000
-            return AuthVerdict(
-                status=status,
-                reason=reason,
-                http_status=code,
-                latency_ms=elapsed,
-                bin_info=bin_info,
-                target_used=gate["name"],
-                card_masked=card_masked,
-                proxy_used=proxy_url,
-            )
+                bin_info = await bin_task
+                elapsed = (time.perf_counter() - started) * 1000
+                return AuthVerdict(
+                    status=status,
+                    reason=reason,
+                    http_status=code,
+                    latency_ms=elapsed,
+                    bin_info=bin_info,
+                    target_used=gate["name"],
+                    card_masked=card_masked,
+                    proxy_used=proxy_url,
+                )
         except Exception as exc:
             last_exc = exc
             if attempt < max_retries:
@@ -608,28 +608,54 @@ async def index() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>WeAreTeachers Braintree Real Auth Checker</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+            50% { box-shadow: 0 0 30px rgba(16, 185, 129, 0.5); }
+        }
+        .live-box-glow {
+            animation: pulseGlow 2.5s infinite;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #09090b;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #27272a;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #3f3f46;
+        }
+    </style>
 </head>
 <body class="bg-zinc-950 text-white min-h-screen p-6">
     <main class="max-w-5xl mx-auto space-y-6">
         <div class="flex flex-wrap items-center justify-between border-b border-zinc-800 pb-4 gap-2">
             <div>
-                <h1 class="text-2xl font-bold text-sky-400">WeAreTeachers Braintree Checker</h1>
+                <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">
+                    <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
+                    WeAreTeachers Braintree Checker
+                </h1>
                 <p class="text-xs text-zinc-400 font-mono">WooCommerce Store API + Braintree GraphQL Engine</p>
             </div>
             <div class="flex gap-2">
-                <button onclick="autoFormatCards()" class="text-xs bg-sky-900/70 hover:bg-sky-800 text-sky-200 border border-sky-700 px-3 py-1.5 rounded-lg transition font-semibold">
-                    ✨ Auto-Format Cards
+                <button onclick="autoFormatCards()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition font-semibold">
+                    ✨ Auto-Format
                 </button>
-                <button onclick="cleanDuplicates()" class="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-3 py-1.5 rounded-lg transition">Clean Dups</button>
-                <button onclick="exportLiveResults()" class="text-xs bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 border border-emerald-700 px-3 py-1.5 rounded-lg transition">Export</button>
+                <button onclick="cleanDuplicates()" class="text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/50 px-3 py-1.5 rounded-lg transition">Clean Dups</button>
+                <button onclick="clearLogs()" class="text-xs bg-amber-950/60 hover:bg-amber-900 text-amber-200 border border-amber-700/50 px-3 py-1.5 rounded-lg transition">Clear Logs</button>
+                <button onclick="exportLiveResults()" class="text-xs bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 border border-emerald-700 px-3 py-1.5 rounded-lg transition">Export Live</button>
             </div>
         </div>
 
-        <div class="bg-zinc-900 rounded-xl p-5 space-y-4 shadow-xl border border-zinc-800">
+        <div class="bg-zinc-900/90 backdrop-blur-md rounded-xl p-5 space-y-4 shadow-xl border border-zinc-800/80">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Gateway Engine</label>
-                    <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                    <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500">
                         <option value="weareteachers_bt">⚡ WEARETEACHERS BRAINTREE GATEWAY ($9.99)</option>
                     </select>
                 </div>
@@ -646,7 +672,7 @@ async def index() -> str:
             </div>
 
             <!-- Telegram Config Box -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800">
                 <div>
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Telegram Bot Token</label>
                     <input id="tgToken" type="text" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
@@ -660,70 +686,76 @@ async def index() -> str:
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <div class="flex justify-between items-center">
-                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box (HTTP, HTTPS, SOCKS4, SOCKS5)</label>
-                        <button onclick="checkAndPruneProxies()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs font-semibold transition">
-                            Test & Auto-Prune (Drop Dead)
+                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box</label>
+                        <button onclick="checkAndPruneProxies()" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded text-xs font-semibold transition text-white">
+                            ⚡ Test & Auto-Prune
                         </button>
                     </div>
-                    <textarea id="proxyInput" rows="4" placeholder="http://user:pass@host:port o socks5://host:port"
-                        class="w-full bg-zinc-950 border border-sky-900/50 rounded-lg p-3 text-xs font-mono focus:outline-none text-sky-300"></textarea>
+                    <textarea id="proxyInput" rows="4" placeholder="http://user:pass@host:port"
+                        class="w-full bg-zinc-950 border border-emerald-900/40 rounded-lg p-3 text-xs font-mono focus:outline-none text-emerald-300 custom-scrollbar"></textarea>
                 </div>
                 <div class="space-y-2">
                     <label class="text-xs font-medium text-rose-400">Dead Proxies Box (Auto-Dropped)</label>
                     <textarea id="deadProxyInput" rows="4" readonly placeholder="Dito mapupunta ang mga dead proxies..."
-                        class="w-full bg-zinc-950 border border-rose-900/50 rounded-lg p-3 text-xs font-mono focus:outline-none text-rose-400"></textarea>
+                        class="w-full bg-zinc-950 border border-rose-900/40 rounded-lg p-3 text-xs font-mono focus:outline-none text-rose-400 custom-scrollbar"></textarea>
                 </div>
             </div>
 
             <div class="space-y-2">
                 <label class="block text-xs font-medium text-zinc-400">Cards List (Supports YY or YYYY)</label>
-                <textarea id="cardInput" rows="4" placeholder="545512...|02|26|005 o 545512...|02|2026|005"
-                    class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+                <textarea id="cardInput" rows="4" placeholder="545512...|02|26|005"
+                    class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none custom-scrollbar"></textarea>
             </div>
 
-            <div class="w-full bg-zinc-950 rounded-full h-2 overflow-hidden border border-zinc-800">
-                <div id="progressBar" class="bg-sky-500 h-2 w-0 transition-all duration-300"></div>
+            <!-- Animated Progress Bar -->
+            <div class="w-full bg-zinc-950 rounded-full h-2.5 overflow-hidden border border-zinc-800 relative">
+                <div id="progressBar" class="bg-gradient-to-r from-emerald-600 to-emerald-400 h-2.5 w-0 transition-all duration-300 relative">
+                    <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+                </div>
             </div>
 
             <div class="grid grid-cols-3 gap-3 text-center text-xs font-mono">
-                <div class="bg-zinc-950 border border-sky-800/60 rounded-lg p-2.5">
+                <div class="bg-zinc-950 border border-emerald-800/60 rounded-lg p-2.5 shadow-inner">
                     <span class="text-zinc-400 block">LIVE / CHARGED</span>
-                    <span id="liveCount" class="text-lg font-bold text-sky-400">0</span>
+                    <span id="liveCount" class="text-lg font-bold text-emerald-400">0</span>
                 </div>
-                <div class="bg-zinc-950 border border-rose-800/60 rounded-lg p-2.5">
+                <div class="bg-zinc-950 border border-rose-800/60 rounded-lg p-2.5 shadow-inner">
                     <span class="text-zinc-400 block">DECLINED / DEAD</span>
                     <span id="deadCount" class="text-lg font-bold text-rose-400">0</span>
                 </div>
-                <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
+                <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 shadow-inner">
                     <span class="text-zinc-400 block">CHECKED</span>
                     <span id="checkedCount" class="text-lg font-bold text-zinc-200">0</span>
                 </div>
             </div>
 
-            <!-- Control Buttons: Start, Pause, Stop -->
+            <!-- Control Buttons -->
             <div class="flex gap-3">
                 <button id="checkButton" onclick="runBatchChecker()"
-                    class="bg-sky-600 hover:bg-sky-500 px-5 py-3 rounded-lg font-semibold flex-1 transition shadow-lg shadow-sky-950/50">
-                    Start Real Auth Check
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-lg font-semibold flex-1 transition shadow-lg shadow-emerald-950/50">
+                    🚀 Start Real Auth Check
                 </button>
                 <button id="pauseButton" onclick="togglePause()" disabled
-                    class="bg-amber-600 hover:bg-amber-500 px-5 py-3 rounded-lg font-semibold transition disabled:opacity-50">
+                    class="bg-amber-600 hover:bg-amber-500 text-white px-5 py-3 rounded-lg font-semibold transition disabled:opacity-50">
                     Pause
                 </button>
                 <button id="stopButton" onclick="stopChecker()" disabled
-                    class="bg-rose-600 hover:bg-rose-500 px-5 py-3 rounded-lg font-semibold transition disabled:opacity-50">
+                    class="bg-rose-600 hover:bg-rose-500 text-white px-5 py-3 rounded-lg font-semibold transition disabled:opacity-50">
                     Stop
                 </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <h2 class="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2">Live / Charged</h2>
-                    <div id="liveBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-sky-300 border border-sky-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5"></div>
+                    <h2 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                        <span>Live / Charged</span>
+                        <span class="text-[10px] text-zinc-500 font-normal">Auto-scroll Active</span>
+                    </h2>
+                    <div id="liveBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-emerald-300 border border-emerald-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5 custom-scrollbar live-box-glow"></div>
                 </div>
                 <div>
                     <h2 class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-2">Declined / Dead</h2>
-                    <div id="deadBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-rose-300 border border-rose-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5"></div>
+                    <div id="deadBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-rose-300 border border-rose-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5 custom-scrollbar"></div>
                 </div>
             </div>
         </div>
@@ -739,7 +771,7 @@ async def index() -> str:
         const gain = audioCtx.createGain();
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.frequency.setValueAtTime(type === 'live' ? 659.25 : 220.00, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(type === 'live' ? 880.00 : 220.00, audioCtx.currentTime);
         gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
         osc.start();
@@ -783,6 +815,15 @@ async def index() -> str:
         ta.value = unique.join("\\n");
     }
 
+    function clearLogs() {
+        document.getElementById("liveBox").innerHTML = "";
+        document.getElementById("deadBox").innerHTML = "";
+        document.getElementById("liveCount").textContent = "0";
+        document.getElementById("deadCount").textContent = "0";
+        document.getElementById("checkedCount").textContent = "0";
+        document.getElementById("progressBar").style.width = "0%";
+    }
+
     function exportLiveResults() {
         const rows = document.getElementById("liveBox").querySelectorAll("div");
         let text = "";
@@ -800,14 +841,14 @@ async def index() -> str:
         isPaused = !isPaused;
         const btn = document.getElementById("pauseButton");
         btn.textContent = isPaused ? "Resume" : "Pause";
-        btn.className = isPaused ? "bg-sky-600 hover:bg-sky-500 px-5 py-3 rounded-lg font-semibold transition" : "bg-amber-600 hover:bg-amber-500 px-5 py-3 rounded-lg font-semibold transition";
+        btn.className = isPaused ? "bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-lg font-semibold transition" : "bg-amber-600 hover:bg-amber-500 text-white px-5 py-3 rounded-lg font-semibold transition";
     }
 
     function stopChecker() {
         isStopped = true;
         isPaused = false;
         document.getElementById("checkButton").disabled = false;
-        document.getElementById("checkButton").textContent = "Start Real Auth Check";
+        document.getElementById("checkButton").textContent = "🚀 Start Real Auth Check";
         document.getElementById("pauseButton").disabled = true;
         document.getElementById("stopButton").disabled = true;
         document.getElementById("pauseButton").textContent = "Pause";
@@ -845,7 +886,7 @@ async def index() -> str:
         await Promise.all(Array.from({ length: Math.min(maxThreads, lines.length) }, () => worker()));
         proxyTa.value = liveProxies.join("\\n");
         deadProxyTa.value = deadProxies.join("\\n");
-        deadBox.innerHTML = `<div class="text-sky-400 font-bold">Proxy Prune Done: ${liveProxies.length} Live, ${deadProxies.length} Dead (Auto-dropped).</div>`;
+        deadBox.innerHTML = `<div class="text-emerald-400 font-bold">Proxy Prune Done: ${liveProxies.length} Live, ${deadProxies.length} Dead (Auto-dropped).</div>`;
     }
 
     async function sendTelegram(token, chatId, text) {
@@ -923,6 +964,7 @@ async def index() -> str:
                         live++;
                         document.getElementById("liveCount").textContent = String(live);
                         liveBox.appendChild(row);
+                        liveBox.scrollTop = liveBox.scrollHeight;
                         playTone('live');
                         if (tgToken && tgChatId) {
                             sendTelegram(tgToken, tgChatId, `🔥 REAL AUTH APPROVED (LIVE) 🔥\\n${line}`);
@@ -931,6 +973,7 @@ async def index() -> str:
                         dead++;
                         document.getElementById("deadCount").textContent = String(dead);
                         deadBox.appendChild(row);
+                        deadBox.scrollTop = deadBox.scrollHeight;
                         playTone('dead');
                     }
                 } catch (err) {
@@ -941,6 +984,7 @@ async def index() -> str:
                     const row = document.createElement("div");
                     row.textContent = `[ERROR] ${pair.card} -> ${err.message}`;
                     deadBox.appendChild(row);
+                    deadBox.scrollTop = deadBox.scrollHeight;
                 }
             }
         }
