@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Checker", version="10.0.0")
+app = FastAPI(title="WeAreTeachers Braintree Checker", version="10.1.0")
 
 fake = Faker("en_US")
 Faker.seed()
@@ -95,7 +95,29 @@ def parse_proxy_string(proxy_url: str | None) -> dict[str, str] | None:
     if not proxy_url or not proxy_url.strip():
         return None
     raw = proxy_url.strip()
-    formatted = raw if "://" in raw else f"http://{raw}"
+    
+    # URL-encode password/session tokens if special characters are present
+    if "://" in raw:
+        protocol, rest = raw.split("://", 1)
+        if "@" in rest:
+            auth, hostport = rest.rsplit("@", 1)
+            if ":" in auth:
+                user, pwd = auth.split(":", 1)
+                encoded_pwd = urllib.parse.quote(pwd, safe="")
+                formatted = f"{protocol}://{user}:{encoded_pwd}@{hostport}"
+            else:
+                formatted = raw
+        else:
+            formatted = raw
+    else:
+        parts = raw.split(":")
+        if len(parts) == 4:
+            host, port, user, pw = parts
+            encoded_pwd = urllib.parse.quote(pw, safe="")
+            formatted = f"http://{user}:{encoded_pwd}@{host}:{port}"
+        else:
+            formatted = f"http://{raw}"
+            
     return {"http": formatted, "https": formatted}
 
 
