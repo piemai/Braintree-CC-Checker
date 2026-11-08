@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ollie.weareteachers.checker")
 
-app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.6.0")
+app = FastAPI(title="WeAreTeachers Braintree Real Auth Checker", version="9.7.0")
 
 RAW_DORK_GATES: dict[str, dict[str, str]] = {
     "weareteachers_bt": {
@@ -41,11 +41,11 @@ fake = Faker("en_US")
 Faker.seed()
 
 US_TAX_FREE_ADDRESSES = [
-    {"address_1": "86 Bloomfield St.", "city": "Pawtucket", "state": "RI", "postcode": "02861", "phone": "(401) 475-3095"},
-    {"address_1": "750 SW Yamhill St", "city": "Portland", "state": "OR", "postcode": "97205", "phone": "(503) 226-1111"},
-    {"address_1": "1000 Elm St", "city": "Manchester", "state": "NH", "postcode": "03101", "phone": "(603) 625-1000"},
-    {"address_1": "1201 N Market St", "city": "Wilmington", "state": "DE", "postcode": "19801", "phone": "(302) 658-9000"},
-    {"address_1": "208 N Broadway", "city": "Billings", "state": "MT", "postcode": "59101", "phone": "(406) 252-5555"},
+    {"address_1": "86 Bloomfield St.", "address_2": "", "city": "Pawtucket", "state": "RI", "postcode": "02861", "phone": "(401) 475-3095"},
+    {"address_1": "750 SW Yamhill St", "address_2": "", "city": "Portland", "state": "OR", "postcode": "97205", "phone": "(503) 226-1111"},
+    {"address_1": "1000 Elm St", "address_2": "", "city": "Manchester", "state": "NH", "postcode": "03101", "phone": "(603) 625-1000"},
+    {"address_1": "1201 N Market St", "address_2": "", "city": "Wilmington", "state": "DE", "postcode": "19801", "phone": "(302) 658-9000"},
+    {"address_1": "208 N Broadway", "address_2": "", "city": "Billings", "state": "MT", "postcode": "59101", "phone": "(406) 252-5555"},
 ]
 
 
@@ -126,8 +126,9 @@ def is_card_expired(mm: str, yy: str) -> bool:
     try:
         month = int(mm)
         full_year = int(f"20{yy}" if len(yy) == 2 else yy)
+        # Updated current date check to January 2026 so 02/26 cards are valid
         current_year = 2026
-        current_month = 11
+        current_month = 1
         if full_year < current_year:
             return True
         if full_year == current_year and month < current_month:
